@@ -83,7 +83,7 @@ def calculate_d(a, m):
 def rsa_parameters():
     p = generate_probable_prime(number_of_bits)
     q = generate_probable_prime(number_of_bits)
-    print (f"p:{p} q: {q}")
+    #print (f"p:{p} q: {q}")
     n = p*q
     phi = (p-1)*(q-1)
     e = calculate_e(phi)
@@ -94,9 +94,7 @@ def rsa_encode(padded_message, n, e):
     return pow(padded_message, e, n)
 
 def rsa_decode(message, n, d):
-    decoded_message = [pow(number, d, n) for number in message]
-    decoded_message = ''.join(chr(i) for i in decoded_message)  # converter array de char para string
-    return decoded_message
+    return pow(message, d, n)
 
 # Converte um inteiro para uma string de octetos de comprimento xLen
 def I2OSP(x, x_len):
@@ -126,7 +124,6 @@ def MGF(seed, mask_len):
 
 def rsa_oaep(n, e, M, L, k):
     h_len = hashlib.sha1().digest_size            # = tamanho em bytes da saída da função de hash
-    k = math.ceil(n.bit_length()/8)                 # = comprimento em bytes do n
 
     if len(L) > 2**61 - 1: # Limite de 2^61 - 1 bytes da função de hash
         raise ValueError("Rótulo muito longo")
@@ -148,16 +145,11 @@ def rsa_oaep(n, e, M, L, k):
         EM = b'\x00' + masked_seed + masked_db
         return EM
 
-def encode(plainText):
+def encode(plainText, n, e, k):
     byte_message = plainText.encode('utf-8')                            # Converte a string para uma sequência de octetos usando UTF-8
     
-    [n, e, d] = rsa_parameters()                                        # Gera os parâmetros do RSA
-    print (f"n: {n}, e: {e}, d: {d}")
-
-    k = math.ceil(n.bit_length()/8)                                     # k = tamanho do n em bytes
-    
     L = b''                                                             # L = rótulo opcional
-    rsa_oaep_message = rsa_oaep(n, e, byte_message, L, k)             # Codifica a mensagem usando RSA-OAEP
+    rsa_oaep_message = rsa_oaep(n, e, byte_message, L, k)               # Codifica a mensagem usando RSA-OAEP
     #print ("Mensagem com Padding: ", rsa_oaep_message)
     
     int_padded_message = OS2IP(rsa_oaep_message)                        # Converte a mensagem codificada para inteiro
@@ -166,22 +158,75 @@ def encode(plainText):
     c = (rsa_encode(int_padded_message, n, e))                          # Codifica a mensagem usando RSA
     #print (f"Mensagem codificada: {c}")
     C = I2OSP(c, k)                                                     # Converte a mensagem codificada para string de octetos (bytes)
-
     return C
 
-def decode(C):
-    pass
+def decode(n, d, C, L, k):
+    h_len = hashlib.sha1().digest_size                                  # = tamanho em bytes da saída da função de hash
+
+    if len(L) > 2**61 - 1:
+        raise ValueError("Rótulo muito longo")
+    if len(C) != k:
+        raise ValueError("Mensagem codificada inválida")
+    if k<2*h_len+2:
+        raise ValueError("Mensagem codificada inválida")
+
+    c = OS2IP(C)                                                        # Converte a mensagem codificada para inteiro
+    #print (f"Mensagem codificada: {c}")
+    
+    int_decoded_padded_message = rsa_decode(c, n, d)                    # Decodifica a mensagem usando RSA
+    print (f"Mensagem decodificada com o padding em bytes: {int_decoded_padded_message}")
+    
+    decoded_padded_message = I2OSP(int_decoded_padded_message, k)       # Converte a mensagem decodificada para string de octetos (bytes)
+
+    lHash = hashlib.sha1(L).digest()                                    # lHash = H(L), onde L é o rótulo opcional
+    
+    Y = decoded_padded_message[0]                                       # Y = primeiro octeto de EM
+    if Y != 0:                                                          # Se Y != 0, retornar "falha"
+        raise ValueError("Falha na decodificação. Y != 0")
+
+    masked_seed = decoded_padded_message[1:h_len+1]                     # maskedSeed = segundo octeto até hLen+1 de EM
+    masked_db = decoded_padded_message[h_len+1:]                        # maskedDB = hLen+2 até k-1 de EM
+
+    seed_mask = MGF(masked_db, h_len)                                   # seedMask = MGF(maskedDB, hLen)
+    seed = bytes(a ^ b for a, b in zip(masked_seed, seed_mask))         # seed = maskedSeed \xor seedMask
+    db_mask = MGF(seed, k - h_len - 1)                                  # dbMask = MGF(seed, k - hLen - 1)
+    DB = bytes(a ^ b for a, b in zip(masked_db, db_mask))               # DB = maskedDB \xor dbMask
+
+    lHash2 = DB[:h_len]                                                 # lHash2 = primeiro hLen octetos de DB
+    if lHash != lHash2:                                                 # Se lHash != lHash2, retornar "falha"
+        print("Falha")
+
+    #PS = total de zeros
+    #M é os últimos k bytes
+    # PS vai até o primeiro 0x01
+    PS = DB[h_len:DB.find(b'\x01')]                                # PS = octeto hLen de DB até o primeiro 0x01
+
+    M = DB[h_len+len(PS):]                                                    # M = octeto hLen+2 de DB até o final
+
+    if PS != b'\x00'*len(PS):                                           # Se PS != 0x00, retornar "falha"
+        raise ValueError("Falha na decodificação. PS != 0x00")
+    
+    if M[0] != 1:                                                       # Se M[0] != 0x01, retornar "falha"
+        raise ValueError("Falha na decodificação. M[0] != 0x01")
+    
+    return M[1:]
 
 def main():
-    plainText = "Hello Darkness my old friend"
+    plainText = "Cinnamoroll é muito fofo"
     print ("Mensagem original: ", plainText)
-
+    
+    [n, e, d] = rsa_parameters()                                        # Pega os parâmetros do RSA
+    k = math.ceil(n.bit_length()/8)                                     # k = tamanho do n em bytes
+    #print (f"n: {n}, e: {e}, d: {d}")
+     
     # Codifica a mensagem usando RSA-OAEP
-    C = encode(plainText)
+    C = encode(plainText, n, e, k)
     print (f"Mensagem codificada: {bytes2string(C)}")
 
     # Decodifica a mensagem usando RSA-OAEP
-    #M = decode(C)
+    M = decode(n, d, C, b'', k)
+    print (f"Mensagem decodificada: {(M.decode('utf-8'))}")
+
 
 if __name__ == "__main__":
     main()
