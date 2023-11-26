@@ -1,6 +1,7 @@
 import random
 import math
 import base64
+import hashlib 
 
 number_of_bits = 1024
 
@@ -52,14 +53,6 @@ def generate_probable_prime(number_of_bits):
         if (miller_rabin(n, 40)):
             return n
 
-# Algoritmo de Euclides para calcular o mdc
-"""
-def gcd(a, b):
-    while b != 0:
-        a, b = b, a % b
-    return a
-"""
-
 # Escolhe um valor de e tal que 1<e<phi(n) e gcd(phi(n), e) = 1.
 def calculate_e(phi):
     while True:
@@ -77,7 +70,7 @@ def calculate_d(a, m):
         x0, x1 = x1 - q * x0, x0
     return x1 % m0
 
-def rsa():
+def rsa_parameters():
     p = generate_probable_prime(number_of_bits)
     print (f"p: {p}")
     q = generate_probable_prime(number_of_bits)
@@ -109,19 +102,33 @@ def decode(message, n, d):
     decoded_message = ''.join(chr(i) for i in decoded_message)  # converter array de char para string
     return decoded_message
 
-def main():
-    message = "Hello World"
-    message_in_ascii = [ord(c) for c in message]
-    print ("Mensagem original em char: ", message_in_ascii)
 
-    [n, e, d] = rsa()
-    print (f"n: {n}, e: {e}, d: {d}")
+#SHA3
+def hash(message):
+    hash = hashlib.sha3_256(message.encode('utf-8')).hexdigest()
+    return hash
+
+def oaep(message):
     
-    encoded_message = encode(message_in_ascii, n, e)
-    print ("Mensagem codificada: ", encoded_message)
+    r = random.randint(0, 2**number_of_bits)
+
+def main():
+    message = "Hello"
+    message_in_ascii = [ord(c) for c in message]
+    message_to_hex = [hex(c) for c in message_in_ascii]
+    print ("Mensagem original em hex: ", message_to_hex)
+
+    #[n, e, d] = rsa_parameters()
+    #print (f"n: {n}, e: {e}, d: {d}")
+
+    print ("Teste Hash: ", hash(message))
     
-    decoded_message = decode(encoded_message, n, d)
-    print ("Mensagem decodificada: ", decoded_message)
+    
+    #encoded_message = encode(message_in_ascii, n, e)
+    #print ("Mensagem codificada: ", encoded_message)
+    
+    #decoded_message = decode(encoded_message, n, d)
+    #print ("Mensagem decodificada: ", decoded_message)
 
 if __name__ == "__main__":
     main()
