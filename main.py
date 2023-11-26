@@ -2,10 +2,11 @@ import random
 import math
 import base64
 import hashlib 
+import os
 
-number_of_bits = 1024
+number_of_bits = 512
 
-# função para verificar se o número é primo rodando o teste de  Miller-Rabin
+# Função para verificar se o número é primo rodando o teste de  Miller-Rabin
 def miller_rabin(n, k):
     if (n == 2 or n == 3):
         return True
@@ -28,7 +29,11 @@ def miller_rabin(n, k):
             return False
     return True
 
-# função para converter binário para inteiro
+# Função para imprimir em formato byte
+def bytes2string(message):
+    return (''.join(format(x, '02x') for x in message))
+
+# Função para converter binário para inteiro
 def binary2int(binary):
     n = 0
     pow2 = 1
@@ -37,7 +42,11 @@ def binary2int(binary):
         pow2 *= 2
     return n
 
-# função para gerar um valor ímpar aleatório com o primeiro e ultimo bit setado como 1 
+# Função para converter inteiro para bytes
+def int2bytes(number):
+    return number.to_bytes((number.bit_length() + 7) // 8, 'big')
+
+# Função para gerar um valor ímpar aleatório com o primeiro e ultimo bit setado como 1 
 def random_odd_value(number_of_bits):
     B = [0]*number_of_bits
     B[0] = 1
@@ -46,7 +55,7 @@ def random_odd_value(number_of_bits):
         B[i] = random.randint(0,1)
     return binary2int(B)
 
-# função para gerar um número primo prováveln
+# Função para gerar um número primo prováveln
 def generate_probable_prime(number_of_bits):
     while True:
         n = random_odd_value(number_of_bits)
@@ -70,65 +79,109 @@ def calculate_d(a, m):
         x0, x1 = x1 - q * x0, x0
     return x1 % m0
 
+# Função que gera os parâmetros do RSA
 def rsa_parameters():
     p = generate_probable_prime(number_of_bits)
-    print (f"p: {p}")
     q = generate_probable_prime(number_of_bits)
-    print (f"q: {q}")
+    print (f"p:{p} q: {q}")
     n = p*q
     phi = (p-1)*(q-1)
     e = calculate_e(phi)
     d = calculate_d(e, phi)
-
     return [n, e, d]
 
-""""
-def encode_message_base64(message):
-    encoded_message = base64.b64encode(message.encode('utf-8')) # Codifica a mensagem usando base64
-    integer_representation = int.from_bytes(encoded_message)   # Converte a representação base64 para um número inteiro
-    return integer_representation
-def decode_message_base64(message):
-    bytes_representation = message.to_bytes(math.ceil(message.bit_length() / 8), byteorder='big') # Converte o número inteiro para bytes
-    decoded_message = base64.b64decode(bytes_representation) # Decodifica a mensagem usando base64
-    return decoded_message
-"""
+def rsa_encode(padded_message, n, e):
+    return pow(padded_message, e, n)
 
-def encode(message, n, e):
-    encoded_message = [pow(number, e, n) for number in message]
-    return encoded_message
-
-def decode(message, n, d):
+def rsa_decode(message, n, d):
     decoded_message = [pow(number, d, n) for number in message]
     decoded_message = ''.join(chr(i) for i in decoded_message)  # converter array de char para string
     return decoded_message
 
+# Converte um inteiro para uma string de octetos de comprimento xLen
+def I2OSP(x, x_len):
+    if x >= 256**x_len:
+        raise ValueError("Número muito grande pra converter")
+    return x.to_bytes(x_len, byteorder='big')
 
-#SHA3
-def hash(message):
-    hash = hashlib.sha3_256(message.encode('utf-8')).hexdigest()
-    return hash
+# Converte uma string de octetos para um inteiro
+def OS2IP(X):
+    return int.from_bytes(X, byteorder='big')
 
-def oaep(message):
+# MGF (mask generation function) é uma função de máscara geradora baseada em hash
+def MGF(seed, mask_len):
+    t = b''
+    for i in range(0, math.ceil(mask_len/len(seed))):
+        c = i.to_bytes(4, byteorder='big')
+        t += hashlib.sha1(seed + c).digest()
+    return t[:mask_len]
+
+#H: SHA3. Hlen = tamanho em bytes da saída da função de hash
+#G: MGF. Função de máscara geradora.
+#(n,e) = chave pública do recipiente. k = comprimento em bytes do n
+# M = mensagem a ser criptografada. Um bytes de tamanho mLen <= k - 2hlen - 2
+# L = rótulo opcional.
+# C = mensagem criptografada. Um octeto de tamanho = k
+# k = comprimento em bytes do n
+
+def rsa_oaep(n, e, M, L, k):
+    h_len = hashlib.sha1().digest_size            # = tamanho em bytes da saída da função de hash
+    k = math.ceil(n.bit_length()/8)                 # = comprimento em bytes do n
+
+    if len(L) > 2**61 - 1: # Limite de 2^61 - 1 bytes da função de hash
+        raise ValueError("Rótulo muito longo")
+    elif len(M) > k - 2*h_len - 2: # Limite de k - 2hlen - 2 bytes da função de hash
+        raise ValueError("Mensagem muito longa")
+    else:  
+        if L == None or L == b'' or L == '':
+            L = b''
+
+        lHash = hashlib.sha1(L).digest()            # lHash = H(L), onde L é o rótulo opcional
+        PS = b'\x00' * (k - len(M) - 2*h_len - 2)       # PS = bytes de preenchimento de zero de comprimento k - mLen - 2hlen - 2    
+        DB = lHash + PS + b'\x01' + M               # DB = lHash || PS || 0x01 || M
+
+        seed = os.urandom(h_len)                    # seed = octeto aleatório de comprimento hLen
+        db_mask = MGF(seed, k - h_len - 1)          # dbMask = MGF(seed, k - hLen - 1)
+        masked_db = bytes(a ^ b for a, b in zip(DB, db_mask))   # maskedDB = DB \xor dbMask
+        seed_mask = MGF(masked_db, h_len)           # seedMask = MGF(maskedDB, hLen)
+        masked_seed = bytes(a ^ b for a, b in zip(seed, seed_mask))
+        EM = b'\x00' + masked_seed + masked_db
+        return EM
+
+def encode(plainText):
+    byte_message = plainText.encode('utf-8')                            # Converte a string para uma sequência de octetos usando UTF-8
     
-    r = random.randint(0, 2**number_of_bits)
+    [n, e, d] = rsa_parameters()                                        # Gera os parâmetros do RSA
+    print (f"n: {n}, e: {e}, d: {d}")
+
+    k = math.ceil(n.bit_length()/8)                                     # k = tamanho do n em bytes
+    
+    L = b''                                                             # L = rótulo opcional
+    rsa_oaep_message = rsa_oaep(n, e, byte_message, L, k)             # Codifica a mensagem usando RSA-OAEP
+    #print ("Mensagem com Padding: ", rsa_oaep_message)
+    
+    int_padded_message = OS2IP(rsa_oaep_message)                        # Converte a mensagem codificada para inteiro
+    #print ("Mensagem com Padding em inteiro: ", int_padded_message)
+
+    c = (rsa_encode(int_padded_message, n, e))                          # Codifica a mensagem usando RSA
+    #print (f"Mensagem codificada: {c}")
+    C = I2OSP(c, k)                                                     # Converte a mensagem codificada para string de octetos (bytes)
+
+    return C
+
+def decode(C):
+    pass
 
 def main():
-    message = "Hello"
-    message_in_ascii = [ord(c) for c in message]
-    message_to_hex = [hex(c) for c in message_in_ascii]
-    print ("Mensagem original em hex: ", message_to_hex)
+    plainText = "Hello Darkness my old friend"
+    print ("Mensagem original: ", plainText)
 
-    #[n, e, d] = rsa_parameters()
-    #print (f"n: {n}, e: {e}, d: {d}")
+    # Codifica a mensagem usando RSA-OAEP
+    C = encode(plainText)
+    print (f"Mensagem codificada: {bytes2string(C)}")
 
-    print ("Teste Hash: ", hash(message))
-    
-    
-    #encoded_message = encode(message_in_ascii, n, e)
-    #print ("Mensagem codificada: ", encoded_message)
-    
-    #decoded_message = decode(encoded_message, n, d)
-    #print ("Mensagem decodificada: ", decoded_message)
+    # Decodifica a mensagem usando RSA-OAEP
+    #M = decode(C)
 
 if __name__ == "__main__":
     main()
