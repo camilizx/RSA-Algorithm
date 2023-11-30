@@ -218,6 +218,28 @@ def decode(n, d, C, L):
     
     return M[1:]
 
+def readKeyFile(file_name):
+    try :
+        file = open(file_name, 'r')
+    except:
+        print ("Crie o arquivo chaves.txt e gere as chaves")
+        return
+    
+    file_read = file.read()
+    file.close()
+    # Se o arquivo estiver vazio, fala que não tem chave
+    if file_read == '':
+        print ("Não há chaves geradas. Preencha o arquivo chaves.txt!")
+        return
+
+    public_key = [file_read.split('\n')[0].split(': ')[-1], file_read.split('\n')[1].split(': ')[-1]]
+    private_key = file_read.split('\n')[2].split(': ')[-1]
+    # Converte os valores para inteiros
+    public_key = [int(value) for value in public_key]
+    private_key = int(private_key)
+
+    return [public_key, private_key]
+
 def main():
     print("*================================================*")
     print("|    Bem vindo ao CJ assinaturas, gerador e      |\n" 
@@ -234,15 +256,6 @@ def main():
         ou qualquer outra tecla para sair:
         ''')
 
-        file = open('chaves.txt', 'r')
-        file_read = file.read()
-        file.close()
-        public_key = [file_read.split('\n')[0].split(': ')[-1], file_read.split('\n')[1].split(': ')[-1]]
-        private_key = file_read.split('\n')[2].split(': ')[-1]
-        # Converte os valores para inteiros
-        public_key = [int(value) for value in public_key]
-        private_key = int(private_key)
-
         if operation == '1':
             print ("Gerando chaves...")
             [n, e, d] = rsa_parameters()
@@ -251,12 +264,12 @@ def main():
             file.close()
         
         elif operation == '2':
+            [public_key, private_key] = readKeyFile('chaves.txt')
             file_name = 'plaintext.txt'
             file = open(file_name, 'r')
             file_read = file.read()
             file.close()
-            k = math.ceil(int(public_key[0]).bit_length()/8)                                     # k = tamanho do n em bytes
-            C = encode(file_read, public_key[0], public_key[1], k)
+            C = encode(file_read, public_key[0], public_key[1])
             file_name = 'ciphertext.txt'
             with open(file_name, 'w') as file:
                 file.write(bytes2string(C))
@@ -264,19 +277,21 @@ def main():
             print ("Arquivo cifrado com sucesso em ciphertext.txt!")
 
         elif operation == '3':
+            [public_key, private_key] = readKeyFile('chaves.txt')
             file_name = 'ciphertext.txt'
             file = open(file_name, 'r')
             file_read = string2bytes(file.read())
             file.close()
 
             M = decode(public_key[0], private_key, file_read, b'')
-            file_name = 'plaintext.txt'
+            file_name = 'decipher.txt'
             with open(file_name, 'w') as file:
                 file.write(M.decode('utf-8'))
             file.close()
-            print ("Arquivo decifrado com sucesso em plaintext.txt!")
+            print ("Arquivo decifrado com sucesso em decipher.txt!")
 
         elif operation == '4':
+            [public_key, private_key] = readKeyFile('chaves.txt')
             file_name = input("Digite o nome do arquivo: ")
             file = open(file_name, 'r')
             file_read = file.read()
@@ -299,6 +314,7 @@ def main():
             print ("Assinatura gerada com sucesso!")
 
         elif operation == '5':
+            [public_key, private_key] = readKeyFile('chaves.txt')
             print ("Verificando assinatura...")
             # Pega a assinatura do arquivo
             file_name = input("Digite o nome do arquivo: ")
