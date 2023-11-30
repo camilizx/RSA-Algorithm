@@ -4,7 +4,7 @@ import base64
 import hashlib 
 import os
 
-number_of_bits = 512
+number_of_bits = 1024
 
 # Função para verificar se o número é primo rodando o teste de  Miller-Rabin
 def miller_rabin(n, k):
@@ -33,6 +33,11 @@ def miller_rabin(n, k):
 def bytes2string(message):
     return (''.join(format(x, '02x') for x in message))
 
+def string2bytes(message):
+    return bytes.fromhex(message)
+
+def string2int(message):
+    return int(message, 16)
 # Função para converter binário para inteiro
 def binary2int(binary):
     n = 0
@@ -145,7 +150,8 @@ def rsa_oaep(n, e, M, L, k):
         EM = b'\x00' + masked_seed + masked_db
         return EM
 
-def encode(plainText, n, e, k):
+def encode(plainText, n, e):
+    k = math.ceil(int(n).bit_length()/8)                                # k = tamanho do n em bytes
     byte_message = plainText.encode('utf-8')                            # Converte a string para uma sequência de octetos usando UTF-8
     
     L = b''                                                             # L = rótulo opcional
@@ -160,7 +166,8 @@ def encode(plainText, n, e, k):
     C = I2OSP(c, k)                                                     # Converte a mensagem codificada para string de octetos (bytes)
     return C
 
-def decode(n, d, C, L, k):
+def decode(n, d, C, L):
+    k = math.ceil(int(n).bit_length()/8)                                # k = tamanho do n em bytes
     h_len = hashlib.sha1().digest_size                                  # = tamanho em bytes da saída da função de hash
 
     if len(L) > 2**61 - 1:
@@ -174,7 +181,7 @@ def decode(n, d, C, L, k):
     #print (f"Mensagem codificada: {c}")
     
     int_decoded_padded_message = rsa_decode(c, n, d)                    # Decodifica a mensagem usando RSA
-    print (f"Mensagem decodificada com o padding em bytes: {int_decoded_padded_message}")
+    #print (f"Mensagem decodificada com o padding em bytes: {int_decoded_padded_message}")
     
     decoded_padded_message = I2OSP(int_decoded_padded_message, k)       # Converte a mensagem decodificada para string de octetos (bytes)
 
@@ -212,20 +219,121 @@ def decode(n, d, C, L, k):
     return M[1:]
 
 def main():
-    plainText = "Cinnamoroll é muito fofo"
-    print ("Mensagem original: ", plainText)
-    
-    [n, e, d] = rsa_parameters()                                        # Pega os parâmetros do RSA
-    k = math.ceil(n.bit_length()/8)                                     # k = tamanho do n em bytes
-    #print (f"n: {n}, e: {e}, d: {d}")
-     
-    # Codifica a mensagem usando RSA-OAEP
-    C = encode(plainText, n, e, k)
-    print (f"Mensagem codificada: {bytes2string(C)}")
+    print("*================================================*")
+    print("|    Bem vindo ao CJ assinaturas, gerador e      |\n" 
+          "|  verificador de assinaturas RSA em arquivos..  |")
+    print("*================================================*\n")
 
-    # Decodifica a mensagem usando RSA-OAEP
-    M = decode(n, d, C, b'', k)
-    print (f"Mensagem decodificada: {(M.decode('utf-8'))}")
+    while True:
+        operation = input('''Escolha a operação que deseja:
+        1: Gerar Chave Pública e Privada
+        2: Cifrar um arquivo
+        3: Decifrar um arquivo
+        4: Gerar Assinatura
+        5: Verificar Assinatura
+        ou qualquer outra tecla para sair:
+        ''')
+
+        file = open('chaves.txt', 'r')
+        file_read = file.read()
+        file.close()
+        public_key = [file_read.split('\n')[0].split(': ')[-1], file_read.split('\n')[1].split(': ')[-1]]
+        private_key = file_read.split('\n')[2].split(': ')[-1]
+        # Converte os valores para inteiros
+        public_key = [int(value) for value in public_key]
+        private_key = int(private_key)
+
+        if operation == '1':
+            print ("Gerando chaves...")
+            [n, e, d] = rsa_parameters()
+            file = open('chaves.txt', 'w')
+            file.write(f"n: {n}\ne: {e}\nd: {d}")
+            file.close()
+        
+        elif operation == '2':
+            file_name = 'plaintext.txt'
+            file = open(file_name, 'r')
+            file_read = file.read()
+            file.close()
+            k = math.ceil(int(public_key[0]).bit_length()/8)                                     # k = tamanho do n em bytes
+            C = encode(file_read, public_key[0], public_key[1], k)
+            file_name = 'ciphertext.txt'
+            with open(file_name, 'w') as file:
+                file.write(bytes2string(C))
+            file.close()
+            print ("Arquivo cifrado com sucesso em ciphertext.txt!")
+
+        elif operation == '3':
+            file_name = 'ciphertext.txt'
+            file = open(file_name, 'r')
+            file_read = string2bytes(file.read())
+            file.close()
+
+            M = decode(public_key[0], private_key, file_read, b'')
+            file_name = 'plaintext.txt'
+            with open(file_name, 'w') as file:
+                file.write(M.decode('utf-8'))
+            file.close()
+            print ("Arquivo decifrado com sucesso em plaintext.txt!")
+
+        elif operation == '4':
+            file_name = input("Digite o nome do arquivo: ")
+            file = open(file_name, 'r')
+            file_read = file.read()
+            file.close()
+
+            print ("Gerando assinatura...")
+            # SHA3-256
+            hash_file = hashlib.sha3_256(file_read.encode('utf-8')).hexdigest()
+
+            #print (f"Hash do arquivo: {hash_file}")
+            # Codifica
+            C = encode(hash_file, public_key[0], public_key[1])
+
+            # Escreve a assinatura no arquivo
+            assinatura = '\nAssinado: \n' + bytes2string(C)
+            file = open(file_name, 'a')
+            file.write(assinatura)
+            file.close()
+
+            print ("Assinatura gerada com sucesso!")
+
+        elif operation == '5':
+            print ("Verificando assinatura...")
+            # Pega a assinatura do arquivo
+            file_name = input("Digite o nome do arquivo: ")
+            file = open(file_name, 'r')
+            file_read = file.read()
+            file.close()
+
+            assinatura = file_read.split('\n')[-1].split(': ')[-1]
+
+            # Decodifica a mensagem usando RSA-OAEP
+            M = decode(public_key[0], private_key, string2bytes(assinatura), b'')
+
+            # SHA3-256
+            # retira ultimas duas linhas do arquivo
+            file_read = file_read.split('\n')[:-2]
+            hash_file = hashlib.sha3_256('\n'.join(file_read).encode('utf-8')).hexdigest()
+
+            print (f"Hash do arquivo: {hash_file}")
+            print (f"Assinatura: {M.decode('utf-8')}")
+
+            if M.decode('utf-8') == hash_file:
+                print ("Assinatura válida!")
+            else:
+                print ("Assinatura inválida!")
+
+           # if M.decode('utf-8') == hash_file:
+            #    print ("Assinatura válida!")
+            #else:
+            #    print ("Assinatura inválida!")
+
+        else:
+            break
+        # Decodifica a mensagem usando RSA-OAEP
+        #M = decode(n, d, C, b'', k)
+        #print (f"Mensagem decodificada: {(M.decode('utf-8'))}")
 
 
 if __name__ == "__main__":
