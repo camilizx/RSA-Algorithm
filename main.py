@@ -300,10 +300,10 @@ def main():
             print ("Gerando assinatura...")
             # SHA3-256
             hash_file = hashlib.sha3_256(file_read.encode('utf-8')).hexdigest()
-
-            #print (f"Hash do arquivo: {hash_file}")
+            
             # Codifica
             C = encode(hash_file, public_key[0], public_key[1])
+            C = base64.b64encode(C)
 
             # Escreve a assinatura no arquivo
             assinatura = '\nAssinado: \n' + bytes2string(C)
@@ -323,10 +323,14 @@ def main():
             file.close()
 
             assinatura = file_read.split('\n')[-1].split(': ')[-1]
+            assinatura = string2bytes(assinatura)
+            assinatura = base64.b64decode(assinatura)
 
             # Decodifica a mensagem usando RSA-OAEP
-            M = decode(public_key[0], private_key, string2bytes(assinatura), b'')
-
+            try: M = decode(public_key[0], private_key, assinatura, b'')
+            except: 
+                print ("Assinatura inválida!")
+                continue
             # SHA3-256
             # retira ultimas duas linhas do arquivo
             file_read = file_read.split('\n')[:-2]
@@ -339,17 +343,8 @@ def main():
                 print ("Assinatura válida!")
             else:
                 print ("Assinatura inválida!")
-
-           # if M.decode('utf-8') == hash_file:
-            #    print ("Assinatura válida!")
-            #else:
-            #    print ("Assinatura inválida!")
-
         else:
             break
-        # Decodifica a mensagem usando RSA-OAEP
-        #M = decode(n, d, C, b'', k)
-        #print (f"Mensagem decodificada: {(M.decode('utf-8'))}")
 
 
 if __name__ == "__main__":
