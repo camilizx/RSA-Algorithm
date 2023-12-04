@@ -306,7 +306,7 @@ def main():
             C = base64.b64encode(C)
 
             # Escreve a assinatura no arquivo
-            assinatura = '\nAssinado: \n' + bytes2string(C)
+            assinatura = '\nAssinado: \n' + C.decode()
             file = open(file_name, 'a')
             file.write(assinatura)
             file.close()
@@ -323,7 +323,7 @@ def main():
             file.close()
 
             assinatura = file_read.split('\n')[-1].split(': ')[-1]
-            assinatura = string2bytes(assinatura)
+            #assinatura = string2bytes(assinatura)
             assinatura = base64.b64decode(assinatura)
 
             # Decodifica a mensagem usando RSA-OAEP
@@ -349,3 +349,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
