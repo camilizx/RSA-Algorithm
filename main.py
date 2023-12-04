@@ -154,16 +154,17 @@ def encode(plainText, n, e):
     k = math.ceil(int(n).bit_length()/8)                                # k = tamanho do n em bytes
     byte_message = plainText.encode('utf-8')                            # Converte a string para uma sequência de octetos usando UTF-8
     
-    L = b''                                                             # L = rótulo opcional
-    rsa_oaep_message = rsa_oaep(n, e, byte_message, L, k)               # Codifica a mensagem usando RSA-OAEP
-    #print ("Mensagem com Padding: ", rsa_oaep_message)
-    
-    int_padded_message = OS2IP(rsa_oaep_message)                        # Converte a mensagem codificada para inteiro
-    #print ("Mensagem com Padding em inteiro: ", int_padded_message)
+    # Se a mensagem for maior que k - 2hlen - 2, cortar a mensagem em vários blocos
+    max_len = k - 2*hashlib.sha1().digest_size - 2
+    byte_message_block = [byte_message[i:i+max_len] for i in range(0, len(byte_message), max_len)]
 
-    c = (rsa_encode(int_padded_message, n, e))                          # Codifica a mensagem usando RSA
-    #print (f"Mensagem codificada: {c}")
-    C = I2OSP(c, k)                                                     # Converte a mensagem codificada para string de octetos (bytes)
+    C = b''
+    L = b''                                                             # L = rótulo opcional
+    for block in byte_message_block:
+        rsa_oaep_message = rsa_oaep(n, e, block, L, k)                      # Codifica a mensagem usando RSA-OAEP
+        int_padded_message = OS2IP(rsa_oaep_message)                        # Converte a mensagem codificada para inteiro
+        c = (rsa_encode(int_padded_message, n, e))                          # Codifica a mensagem usando RSA
+        C += I2OSP(c, k)                                                     # Converte a mensagem codificada para string de octetos (bytes)
     return C
 
 def decode(n, d, C, L):
@@ -172,51 +173,54 @@ def decode(n, d, C, L):
 
     if len(L) > 2**61 - 1:
         raise ValueError("Rótulo muito longo")
-    if len(C) != k:
-        raise ValueError("Mensagem codificada inválida")
     if k<2*h_len+2:
         raise ValueError("Mensagem codificada inválida")
 
-    c = OS2IP(C)                                                        # Converte a mensagem codificada para inteiro
-    #print (f"Mensagem codificada: {c}")
-    
-    int_decoded_padded_message = rsa_decode(c, n, d)                    # Decodifica a mensagem usando RSA
-    #print (f"Mensagem decodificada com o padding em bytes: {int_decoded_padded_message}")
-    
-    decoded_padded_message = I2OSP(int_decoded_padded_message, k)       # Converte a mensagem decodificada para string de octetos (bytes)
+    # Se a mensagem for maior que k - 2hlen - 2, cortar a mensagem em vários blocos
+    max_len = k - 2*hashlib.sha1().digest_size - 2
+    byte_message_block = [C[i:i+k] for i in range(0, len(C), k)]
+    decoded_message = b''
+    print (len(byte_message_block))
 
-    lHash = hashlib.sha1(L).digest()                                    # lHash = H(L), onde L é o rótulo opcional
-    
-    Y = decoded_padded_message[0]                                       # Y = primeiro octeto de EM
-    if Y != 0:                                                          # Se Y != 0, retornar "falha"
-        raise ValueError("Falha na decodificação. Y != 0")
+    for block in byte_message_block:
+        c = OS2IP(block)                                                        # Converte a mensagem codificada para inteiro
+        int_decoded_padded_message = rsa_decode(c, n, d)                    # Decodifica a mensagem usando RSA
+        decoded_padded_message = I2OSP(int_decoded_padded_message, k)       # Converte a mensagem decodificada para string de octetos (bytes)
 
-    masked_seed = decoded_padded_message[1:h_len+1]                     # maskedSeed = segundo octeto até hLen+1 de EM
-    masked_db = decoded_padded_message[h_len+1:]                        # maskedDB = hLen+2 até k-1 de EM
+        lHash = hashlib.sha1(L).digest()                                    # lHash = H(L), onde L é o rótulo opcional
+        
+        Y = decoded_padded_message[0]                                       # Y = primeiro octeto de EM
+        if Y != 0:                                                          # Se Y != 0, retornar "falha"
+            raise ValueError("Falha na decodificação. Y != 0")
 
-    seed_mask = MGF(masked_db, h_len)                                   # seedMask = MGF(maskedDB, hLen)
-    seed = bytes(a ^ b for a, b in zip(masked_seed, seed_mask))         # seed = maskedSeed \xor seedMask
-    db_mask = MGF(seed, k - h_len - 1)                                  # dbMask = MGF(seed, k - hLen - 1)
-    DB = bytes(a ^ b for a, b in zip(masked_db, db_mask))               # DB = maskedDB \xor dbMask
+        masked_seed = decoded_padded_message[1:h_len+1]                     # maskedSeed = segundo octeto até hLen+1 de EM
+        masked_db = decoded_padded_message[h_len+1:]                        # maskedDB = hLen+2 até k-1 de EM
 
-    lHash2 = DB[:h_len]                                                 # lHash2 = primeiro hLen octetos de DB
-    if lHash != lHash2:                                                 # Se lHash != lHash2, retornar "falha"
-        print("Falha")
+        seed_mask = MGF(masked_db, h_len)                                   # seedMask = MGF(maskedDB, hLen)
+        seed = bytes(a ^ b for a, b in zip(masked_seed, seed_mask))         # seed = maskedSeed \xor seedMask
+        db_mask = MGF(seed, k - h_len - 1)                                  # dbMask = MGF(seed, k - hLen - 1)
+        DB = bytes(a ^ b for a, b in zip(masked_db, db_mask))               # DB = maskedDB \xor dbMask
 
-    #PS = total de zeros
-    #M é os últimos k bytes
-    # PS vai até o primeiro 0x01
-    PS = DB[h_len:DB.find(b'\x01')]                                # PS = octeto hLen de DB até o primeiro 0x01
+        lHash2 = DB[:h_len]                                                 # lHash2 = primeiro hLen octetos de DB
+        if lHash != lHash2:                                                 # Se lHash != lHash2, retornar "falha"
+            print("Falha")
 
-    M = DB[h_len+len(PS):]                                                    # M = octeto hLen+2 de DB até o final
+        #PS = total de zeros
+        #M é os últimos k bytes
+        # PS vai até o primeiro 0x01
+        PS = DB[h_len:DB.find(b'\x01')]                                # PS = octeto hLen de DB até o primeiro 0x01
 
-    if PS != b'\x00'*len(PS):                                           # Se PS != 0x00, retornar "falha"
-        raise ValueError("Falha na decodificação. PS != 0x00")
-    
-    if M[0] != 1:                                                       # Se M[0] != 0x01, retornar "falha"
-        raise ValueError("Falha na decodificação. M[0] != 0x01")
-    
-    return M[1:]
+        M = DB[h_len+len(PS):]                                                    # M = octeto hLen+2 de DB até o final
+
+        if PS != b'\x00'*len(PS):                                           # Se PS != 0x00, retornar "falha"
+            raise ValueError("Falha na decodificação. PS != 0x00")
+        
+        if M[0] != 1:                                                       # Se M[0] != 0x01, retornar "falha"
+            raise ValueError("Falha na decodificação. M[0] != 0x01")
+
+        decoded_message += M[1:]                                            # M = octeto hLen+2 de DB até o final
+
+    return decoded_message
 
 def readKeyFile(file_name):
     try :
