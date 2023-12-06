@@ -5,7 +5,35 @@ import hashlib
 import os
 
 number_of_bits = 1024
+'''
+===============================
+    FUNÇÕES AUXILIARES
+===============================
+'''
+def bytes2string(message):
+    return (''.join(format(x, '02x') for x in message))
 
+def string2bytes(message):
+    return bytes.fromhex(message)
+
+def string2int(message):
+    return int(message, 16)
+
+def binary2int(binary):
+    n = 0
+    pow2 = 1
+    for i in range(len(binary)-1, -1, -1):
+        n += binary[i] * pow2
+        pow2 *= 2
+    return n
+
+def int2bytes(number):
+    return number.to_bytes((number.bit_length() + 7) // 8, 'big')
+'''
+===============================
+    FUNÇÕES DO RSA
+===============================
+'''
 # Função para verificar se o número é primo rodando o teste de  Miller-Rabin
 def miller_rabin(n, k):
     if (n == 2 or n == 3):
@@ -29,28 +57,6 @@ def miller_rabin(n, k):
             return False
     return True
 
-# Função para imprimir em formato byte
-def bytes2string(message):
-    return (''.join(format(x, '02x') for x in message))
-
-def string2bytes(message):
-    return bytes.fromhex(message)
-
-def string2int(message):
-    return int(message, 16)
-# Função para converter binário para inteiro
-def binary2int(binary):
-    n = 0
-    pow2 = 1
-    for i in range(len(binary)-1, -1, -1):
-        n += binary[i] * pow2
-        pow2 *= 2
-    return n
-
-# Função para converter inteiro para bytes
-def int2bytes(number):
-    return number.to_bytes((number.bit_length() + 7) // 8, 'big')
-
 # Função para gerar um valor ímpar aleatório com o primeiro e ultimo bit setado como 1 
 def random_odd_value(number_of_bits):
     B = [0]*number_of_bits
@@ -60,11 +66,11 @@ def random_odd_value(number_of_bits):
         B[i] = random.randint(0,1)
     return binary2int(B)
 
-# Função para gerar um número primo prováveln
+# Função para gerar um número primo provável
 def generate_probable_prime(number_of_bits):
     while True:
         n = random_odd_value(number_of_bits)
-        if (miller_rabin(n, 40)):
+        if (miller_rabin(n, 40)):               # Teste de Miller-Rabin com k = 40
             return n
 
 # Escolhe um valor de e tal que 1<e<phi(n) e gcd(phi(n), e) = 1.
@@ -85,7 +91,7 @@ def calculate_d(a, m):
     return x1 % m0
 
 # Função que gera os parâmetros do RSA
-def rsa_parameters():
+def key_generator():
     p = generate_probable_prime(number_of_bits)
     q = generate_probable_prime(number_of_bits)
     #print (f"p:{p} q: {q}")
@@ -100,14 +106,18 @@ def rsa_encode(padded_message, n, e):
 
 def rsa_decode(message, n, d):
     return pow(message, d, n)
-
-# Converte um inteiro para uma string de octetos de comprimento xLen
+'''
+===============================
+    FUNÇÕES DO OAEP
+===============================
+'''
+# Converte um inteiro para uma string de bytes de comprimento xLen
 def I2OSP(x, x_len):
     if x >= 256**x_len:
         raise ValueError("Número muito grande pra converter")
     return x.to_bytes(x_len, byteorder='big')
 
-# Converte uma string de octetos para um inteiro
+# Converte uma string de bytes para um inteiro
 def OS2IP(X):
     return int.from_bytes(X, byteorder='big')
 
@@ -124,25 +134,25 @@ def MGF(seed, mask_len):
 #(n,e) = chave pública do recipiente. k = comprimento em bytes do n
 # M = mensagem a ser criptografada. Um bytes de tamanho mLen <= k - 2hlen - 2
 # L = rótulo opcional.
-# C = mensagem criptografada. Um octeto de tamanho = k
+# C = mensagem criptografada. Um byte de tamanho = k
 # k = comprimento em bytes do n
 
 def rsa_oaep(n, e, M, L, k):
-    h_len = hashlib.sha1().digest_size            # = tamanho em bytes da saída da função de hash
+    h_len = hashlib.sha1().digest_size              # = tamanho em bytes da saída da função de hash
 
-    if len(L) > 2**61 - 1: # Limite de 2^61 - 1 bytes da função de hash
+    if len(L) > 2**61 - 1:                          # Limite de 2^61 - 1 bytes da função de hash
         raise ValueError("Rótulo muito longo")
-    elif len(M) > k - 2*h_len - 2: # Limite de k - 2hlen - 2 bytes da função de hash
+    elif len(M) > k - 2*h_len - 2:                  # Limite de k - 2hlen - 2 bytes da função de hash
         raise ValueError("Mensagem muito longa")
     else:  
         if L == None or L == b'' or L == '':
             L = b''
 
         lHash = hashlib.sha1(L).digest()            # lHash = H(L), onde L é o rótulo opcional
-        PS = b'\x00' * (k - len(M) - 2*h_len - 2)       # PS = bytes de preenchimento de zero de comprimento k - mLen - 2hlen - 2    
+        PS = b'\x00' * (k - len(M) - 2*h_len - 2)   # PS = bytes de preenchimento de zero de comprimento k - mLen - 2hlen - 2    
         DB = lHash + PS + b'\x01' + M               # DB = lHash || PS || 0x01 || M
 
-        seed = os.urandom(h_len)                    # seed = octeto aleatório de comprimento hLen
+        seed = os.urandom(h_len)                    # seed = byte aleatório de comprimento hLen
         db_mask = MGF(seed, k - h_len - 1)          # dbMask = MGF(seed, k - hLen - 1)
         masked_db = bytes(a ^ b for a, b in zip(DB, db_mask))   # maskedDB = DB \xor dbMask
         seed_mask = MGF(masked_db, h_len)           # seedMask = MGF(maskedDB, hLen)
@@ -152,7 +162,7 @@ def rsa_oaep(n, e, M, L, k):
 
 def encode(plainText, n, e):
     k = math.ceil(int(n).bit_length()/8)                                # k = tamanho do n em bytes
-    byte_message = plainText.encode('utf-8')                            # Converte a string para uma sequência de octetos usando UTF-8
+    byte_message = plainText.encode('utf-8')                            # Converte a string para uma sequência de bytes usando UTF-8
     
     # Se a mensagem for maior que k - 2hlen - 2, cortar a mensagem em vários blocos
     max_len = k - 2*hashlib.sha1().digest_size - 2
@@ -164,7 +174,7 @@ def encode(plainText, n, e):
         rsa_oaep_message = rsa_oaep(n, e, block, L, k)                      # Codifica a mensagem usando RSA-OAEP
         int_padded_message = OS2IP(rsa_oaep_message)                        # Converte a mensagem codificada para inteiro
         c = (rsa_encode(int_padded_message, n, e))                          # Codifica a mensagem usando RSA
-        C += I2OSP(c, k)                                                     # Converte a mensagem codificada para string de octetos (bytes)
+        C += I2OSP(c, k)                                                    # Converte a mensagem codificada para string de bytes (bytes)
     return C
 
 def decode(n, d, C, L):
@@ -183,17 +193,17 @@ def decode(n, d, C, L):
     print (len(byte_message_block))
 
     for block in byte_message_block:
-        c = OS2IP(block)                                                        # Converte a mensagem codificada para inteiro
+        c = OS2IP(block)                                                    # Converte a mensagem codificada para inteiro
         int_decoded_padded_message = rsa_decode(c, n, d)                    # Decodifica a mensagem usando RSA
-        decoded_padded_message = I2OSP(int_decoded_padded_message, k)       # Converte a mensagem decodificada para string de octetos (bytes)
+        decoded_padded_message = I2OSP(int_decoded_padded_message, k)       # Converte a mensagem decodificada para string de bytes 
 
         lHash = hashlib.sha1(L).digest()                                    # lHash = H(L), onde L é o rótulo opcional
         
-        Y = decoded_padded_message[0]                                       # Y = primeiro octeto de EM
+        Y = decoded_padded_message[0]                                       # Y = primeiro byte de EM
         if Y != 0:                                                          # Se Y != 0, retornar "falha"
             raise ValueError("Falha na decodificação. Y != 0")
 
-        masked_seed = decoded_padded_message[1:h_len+1]                     # maskedSeed = segundo octeto até hLen+1 de EM
+        masked_seed = decoded_padded_message[1:h_len+1]                     # maskedSeed = segundo byte até hLen+1 de EM
         masked_db = decoded_padded_message[h_len+1:]                        # maskedDB = hLen+2 até k-1 de EM
 
         seed_mask = MGF(masked_db, h_len)                                   # seedMask = MGF(maskedDB, hLen)
@@ -201,16 +211,16 @@ def decode(n, d, C, L):
         db_mask = MGF(seed, k - h_len - 1)                                  # dbMask = MGF(seed, k - hLen - 1)
         DB = bytes(a ^ b for a, b in zip(masked_db, db_mask))               # DB = maskedDB \xor dbMask
 
-        lHash2 = DB[:h_len]                                                 # lHash2 = primeiro hLen octetos de DB
+        lHash2 = DB[:h_len]                                                 # lHash2 = primeiro hLen bytes de DB
         if lHash != lHash2:                                                 # Se lHash != lHash2, retornar "falha"
             print("Falha")
 
         #PS = total de zeros
         #M é os últimos k bytes
         # PS vai até o primeiro 0x01
-        PS = DB[h_len:DB.find(b'\x01')]                                # PS = octeto hLen de DB até o primeiro 0x01
+        PS = DB[h_len:DB.find(b'\x01')]                                     # PS = byte hLen de DB até o primeiro 0x01
 
-        M = DB[h_len+len(PS):]                                                    # M = octeto hLen+2 de DB até o final
+        M = DB[h_len+len(PS):]                                                    # M = byte hLen+2 de DB até o final
 
         if PS != b'\x00'*len(PS):                                           # Se PS != 0x00, retornar "falha"
             raise ValueError("Falha na decodificação. PS != 0x00")
@@ -218,22 +228,23 @@ def decode(n, d, C, L):
         if M[0] != 1:                                                       # Se M[0] != 0x01, retornar "falha"
             raise ValueError("Falha na decodificação. M[0] != 0x01")
 
-        decoded_message += M[1:]                                            # M = octeto hLen+2 de DB até o final
+        decoded_message += M[1:]                                            # M = byte hLen+2 de DB até o final
 
     return decoded_message
 
+# Função para ler o arquivo keys.txt e retornar as chaves
 def readKeyFile(file_name):
     try :
         file = open(file_name, 'r')
     except:
-        print ("Crie o arquivo chaves.txt e gere as chaves")
+        print ("Crie o arquivo keys.txt e gere as chaves")
         return
     
     file_read = file.read()
     file.close()
     # Se o arquivo estiver vazio, fala que não tem chave
     if file_read == '':
-        print ("Não há chaves geradas. Preencha o arquivo chaves.txt!")
+        print ("Não há chaves geradas. Preencha o arquivo keys.txt!")
         return
 
     public_key = [file_read.split('\n')[0].split(': ')[-1], file_read.split('\n')[1].split(': ')[-1]]
@@ -243,7 +254,11 @@ def readKeyFile(file_name):
     private_key = int(private_key)
 
     return [public_key, private_key]
-
+'''
+===============================
+    FUNÇÃO PRINCIPAL
+===============================
+'''
 def main():
     print("*================================================*")
     print("|    Bem vindo ao CJ assinaturas, gerador e      |\n" 
@@ -262,13 +277,14 @@ def main():
 
         if operation == '1':
             print ("Gerando chaves...")
-            [n, e, d] = rsa_parameters()
-            file = open('chaves.txt', 'w')
+            [n, e, d] = key_generator()
+            file = open('keys.txt', 'w')
             file.write(f"n: {n}\ne: {e}\nd: {d}")
             file.close()
+            print ("Chaves geradas com sucesso! Salvas em keys.txt")
         
         elif operation == '2':
-            [public_key, private_key] = readKeyFile('chaves.txt')
+            [public_key, private_key] = readKeyFile('keys.txt')
             file_name = 'plaintext.txt'
             file = open(file_name, 'r')
             file_read = file.read()
@@ -281,7 +297,7 @@ def main():
             print ("Arquivo cifrado com sucesso em ciphertext.txt!")
 
         elif operation == '3':
-            [public_key, private_key] = readKeyFile('chaves.txt')
+            [public_key, private_key] = readKeyFile('keys.txt')
             file_name = 'ciphertext.txt'
             file = open(file_name, 'r')
             file_read = string2bytes(file.read())
@@ -295,7 +311,7 @@ def main():
             print ("Arquivo decifrado com sucesso em decipher.txt!")
 
         elif operation == '4':
-            [public_key, private_key] = readKeyFile('chaves.txt')
+            [public_key, private_key] = readKeyFile('keys.txt')
             file_name = input("Digite o nome do arquivo: ")
             file = open(file_name, 'r')
             file_read = file.read()
@@ -318,7 +334,7 @@ def main():
             print ("Assinatura gerada com sucesso!")
 
         elif operation == '5':
-            [public_key, private_key] = readKeyFile('chaves.txt')
+            [public_key, private_key] = readKeyFile('keys.txt')
             print ("Verificando assinatura...")
             # Pega a assinatura do arquivo
             file_name = input("Digite o nome do arquivo: ")
@@ -327,7 +343,6 @@ def main():
             file.close()
 
             assinatura = file_read.split('\n')[-1].split(': ')[-1]
-            #assinatura = string2bytes(assinatura)
             assinatura = base64.b64decode(assinatura)
 
             # Decodifica a mensagem usando RSA-OAEP
